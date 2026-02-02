@@ -165,29 +165,6 @@ export function drawMapBackground(
   ctx.fillStyle = backgroundColor
   ctx.fillRect(0, 0, width, height)
 
-  if (mapStyle === "none") return
-
-  if (mapStyle === "grid") {
-    // Draw grid
-    ctx.strokeStyle = `${backgroundColor === "#1a1a2e" || backgroundColor.startsWith("#1") || backgroundColor.startsWith("#0") ? "#ffffff" : "#000000"}15`
-    ctx.lineWidth = 1
-
-    const gridSize = 40
-    for (let x = 0; x < width; x += gridSize) {
-      ctx.beginPath()
-      ctx.moveTo(x, 0)
-      ctx.lineTo(x, height)
-      ctx.stroke()
-    }
-    for (let y = 0; y < height; y += gridSize) {
-      ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(width, y)
-      ctx.stroke()
-    }
-    return
-  }
-
   // World map rendering
   const isDark = mapStyle === "world-dark"
   const isOutline = mapStyle === "world-outline"
