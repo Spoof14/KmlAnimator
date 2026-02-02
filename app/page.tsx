@@ -41,6 +41,9 @@ export default function Home() {
   const animationRef = useRef<number | null>(null)
   const startTimeRef = useRef<number | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordingStreamRef = useRef<MediaStream | null>(null)
+  const recordingTimeoutRef = useRef<number | null>(null)
 
   const currentCoordinates: Coordinate[] =
     routes.length > 0 ? routes[selectedRoute]?.coordinates || [] : []
@@ -76,57 +79,143 @@ export default function Home() {
     [duration]
   )
 
-  const handlePlayPause = useCallback(() => {
-    if (isPlaying) {
+  const stopAnimation = useCallback(() => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+    setIsPlaying(false)
+    startTimeRef.current = null
+  }, [])
+
+  const startAnimation = useCallback(
+    (startAtProgress: number) => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
       }
-      setIsPlaying(false)
-      startTimeRef.current = null
-    } else {
-      if (progress >= 1) {
-        setProgress(0)
-      }
-      startTimeRef.current = null
-      if (progress > 0 && progress < 1) {
-        startTimeRef.current = performance.now() - progress * duration * 1000
-      }
+      const clamped = Math.min(Math.max(startAtProgress, 0), 1)
+      setProgress(clamped)
       setIsPlaying(true)
+      startTimeRef.current = performance.now() - clamped * duration * 1000
       animationRef.current = requestAnimationFrame(animate)
+    },
+    [animate, duration]
+  )
+
+  const handlePlayPause = useCallback(() => {
+    if (isPlaying) {
+      stopAnimation()
+      return
     }
-  }, [isPlaying, progress, duration, animate])
+
+    const nextProgress = progress >= 1 ? 0 : progress
+    startAnimation(nextProgress)
+  }, [isPlaying, progress, startAnimation, stopAnimation])
 
   const handleReset = useCallback(() => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-    }
+    stopAnimation()
     setProgress(0)
-    setIsPlaying(false)
-    startTimeRef.current = null
-  }, [])
+  }, [stopAnimation])
 
   const handleProgressChange = useCallback((value: number) => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-    }
+    stopAnimation()
     setProgress(value)
-    setIsPlaying(false)
-    startTimeRef.current = null
-  }, [])
+  }, [stopAnimation])
 
   const handleExport = useCallback(async () => {
-    // Note: Leaflet maps don't support canvas capture directly
-    // This would need html2canvas or a different approach
-    alert("Video export coming soon! For now, use screen recording software to capture your animation.")
-  }, [])
+    if (isExporting) return
+    if (!currentCoordinates.length) {
+      alert("Upload a route before exporting a video.")
+      return
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === "undefined") {
+      alert("Screen recording is not supported in this browser.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: 30,
+        },
+        audio: false,
+      })
+
+      const supportedMimeTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ]
+      const mimeType = supportedMimeTypes.find((type) => MediaRecorder.isTypeSupported(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const chunks: Blob[] = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        recordingTimeoutRef.current && clearTimeout(recordingTimeoutRef.current)
+        recordingTimeoutRef.current = null
+
+        stream.getTracks().forEach((track) => track.stop())
+        recordingStreamRef.current = null
+        recorderRef.current = null
+        setIsExporting(false)
+
+        if (!chunks.length) {
+          return
+        }
+
+        const blob = new Blob(chunks, { type: mimeType ?? "video/webm" })
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement("a")
+        anchor.href = url
+        anchor.download = `route-animation-${Date.now()}.webm`
+        anchor.click()
+        URL.revokeObjectURL(url)
+      }
+
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (recorder.state !== "inactive") {
+          recorder.stop()
+        }
+        stopAnimation()
+      })
+
+      recorderRef.current = recorder
+      recordingStreamRef.current = stream
+      setIsExporting(true)
+      recorder.start()
+
+      startAnimation(0)
+
+      recordingTimeoutRef.current = window.setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          recorder.stop()
+        }
+      }, (duration + 0.3) * 1000)
+    } catch (error) {
+      stopAnimation()
+      setIsExporting(false)
+      const err = error as DOMException
+      if (err?.name !== "NotAllowedError") {
+        alert("Recording failed. Please try again and allow screen recording.")
+      }
+    }
+  }, [currentCoordinates.length, duration, isExporting, startAnimation, stopAnimation])
 
   useEffect(() => {
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
+      stopAnimation()
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current)
       }
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
-  }, [])
+  }, [stopAnimation])
 
   const totalDistance =
     currentCoordinates.length > 0

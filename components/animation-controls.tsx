@@ -279,7 +279,7 @@ export function AnimationControls({
           {isExporting ? "Recording..." : "Export as Video"}
         </Button>
         <p className="text-xs text-muted-foreground mt-2 text-center">
-          Use screen recording for best results
+          Choose this tab to save a WebM recording
         </p>
       </div>
     </div>
