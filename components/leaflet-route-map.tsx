@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import type { Coordinate } from "@/lib/kml-parser"
 import type { VehicleType, MapStyle } from "@/lib/vehicle-icons"
+import type { CameraMode } from "@/lib/camera"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 
@@ -15,6 +16,7 @@ type LeafletRouteMapProps = {
   dotColor: string
   vehicleType: VehicleType
   mapStyle: MapStyle
+  cameraMode: CameraMode
 }
 
 // Map tile providers
@@ -40,6 +42,11 @@ const tileProviders: Record<MapStyle, { url: string; attribution: string }> = {
     attribution: '&copy; <a href="https://www.esri.com/">Esri</a>',
   },
 }
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(Math.max(value, min), max)
+
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3)
 
 // Vehicle SVG icons - simple dark icons for visibility
 function getVehicleSvg(type: VehicleType, color: string, size: number): string {
@@ -98,6 +105,7 @@ export function LeafletRouteMap({
   dotColor,
   vehicleType,
   mapStyle,
+  cameraMode,
 }: LeafletRouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -108,6 +116,21 @@ export function LeafletRouteMap({
   const startMarkerRef = useRef<L.CircleMarker | null>(null)
   const endMarkerRef = useRef<L.CircleMarker | null>(null)
   const smoothBearingRef = useRef(0)
+  const boundsRef = useRef<L.LatLngBounds | null>(null)
+  const zoomRangeRef = useRef<{ start: number; end: number } | null>(null)
+
+  const updateCamera = (center: L.LatLng, zoom: number) => {
+    const map = mapRef.current
+    if (!map) return
+
+    const currentZoom = map.getZoom()
+    const currentCenter = map.getCenter()
+    const zoomDelta = Math.abs(currentZoom - zoom)
+    const centerDelta = currentCenter.distanceTo(center)
+
+    if (zoomDelta < 0.01 && centerDelta < 0.5) return
+    map.setView(center, zoom, { animate: false })
+  }
 
   // Initialize map
   useEffect(() => {
@@ -164,9 +187,20 @@ export function LeafletRouteMap({
     // Convert coordinates to LatLng
     const latLngs = coordinates.map((c) => L.latLng(c.lat, c.lng))
 
-    // Fit bounds with padding
     const bounds = L.latLngBounds(latLngs)
-    map.fitBounds(bounds, { padding: [50, 50] })
+    boundsRef.current = bounds
+
+    const padding: [number, number] = [50, 50]
+    const boundsZoom = map.getBoundsZoom(bounds, false, padding)
+    const startZoom = clamp(boundsZoom - 1.25, 2, 18)
+    const endZoom = Math.max(startZoom + 0.5, clamp(boundsZoom + 2, 3, 19))
+    zoomRangeRef.current = { start: startZoom, end: endZoom }
+
+    if (cameraMode === "static") {
+      map.fitBounds(bounds, { padding })
+    } else {
+      map.setView(bounds.getCenter(), startZoom, { animate: false })
+    }
 
     // Draw full route (faded)
     fullRouteRef.current = L.polyline(latLngs, {
@@ -207,7 +241,7 @@ export function LeafletRouteMap({
         fillOpacity: 1,
       }).addTo(map)
     }
-  }, [coordinates, lineColor, lineWidth])
+  }, [cameraMode, coordinates, lineColor, lineWidth])
 
   // Update animated route and vehicle position
   useEffect(() => {
@@ -287,7 +321,26 @@ export function LeafletRouteMap({
       vehicleMarkerRef.current.remove()
       vehicleMarkerRef.current = null
     }
-  }, [coordinates, progress, lineColor, lineWidth, showDot, dotColor, vehicleType])
+    const bounds = boundsRef.current
+    const zoomRange = zoomRangeRef.current
+    if (cameraMode !== "static" && bounds && zoomRange && currentPosition) {
+      const normalizedProgress = clamp(progress, 0, 1)
+      const targetCenter =
+        normalizedProgress === 0 ? bounds.getCenter() : currentPosition
+
+      let targetZoom =
+        cameraMode === "follow"
+          ? zoomRange.end
+          : zoomRange.start +
+            (zoomRange.end - zoomRange.start) * easeOutCubic(normalizedProgress)
+
+      if (cameraMode === "cinematic" && normalizedProgress >= 0.98) {
+        targetZoom = clamp(targetZoom + 0.8, 2, 19)
+      }
+
+      updateCamera(targetCenter, targetZoom)
+    }
+  }, [cameraMode, coordinates, progress, lineColor, lineWidth, showDot, dotColor, vehicleType])
 
   return (
     <>

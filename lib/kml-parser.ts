@@ -9,6 +9,14 @@ export type RouteData = {
   coordinates: Coordinate[]
 }
 
+export type ElevationStats = {
+  hasElevation: boolean
+  min: number
+  max: number
+  gain: number
+  loss: number
+}
+
 export function parseKML(kmlContent: string): RouteData[] {
   const parser = new DOMParser()
   const doc = parser.parseFromString(kmlContent, "text/xml")
@@ -144,4 +152,46 @@ export function calculateTotalDistance(coordinates: Coordinate[]): number {
   }
 
   return totalDistance
+}
+
+export function calculateElevationStats(coordinates: Coordinate[]): ElevationStats {
+  const coordsWithAlt = coordinates.filter(
+    (coord): coord is Coordinate & { alt: number } =>
+      typeof coord.alt === "number" && Number.isFinite(coord.alt)
+  )
+
+  if (coordsWithAlt.length === 0) {
+    return {
+      hasElevation: false,
+      min: 0,
+      max: 0,
+      gain: 0,
+      loss: 0,
+    }
+  }
+
+  let min = coordsWithAlt[0].alt
+  let max = coordsWithAlt[0].alt
+  let gain = 0
+  let loss = 0
+
+  for (let i = 1; i < coordsWithAlt.length; i++) {
+    const diff = coordsWithAlt[i].alt - coordsWithAlt[i - 1].alt
+    if (diff > 0) {
+      gain += diff
+    } else if (diff < 0) {
+      loss += Math.abs(diff)
+    }
+
+    min = Math.min(min, coordsWithAlt[i].alt)
+    max = Math.max(max, coordsWithAlt[i].alt)
+  }
+
+  return {
+    hasElevation: true,
+    min,
+    max,
+    gain,
+    loss,
+  }
 }

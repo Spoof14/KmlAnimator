@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { FileUpload } from "@/components/file-upload"
 import { AnimationControls } from "@/components/animation-controls"
 import dynamic from "next/dynamic"
-import { parseKML, calculateTotalDistance } from "@/lib/kml-parser"
+import { parseKML, calculateTotalDistance, calculateElevationStats } from "@/lib/kml-parser"
 import type { Coordinate, RouteData } from "@/lib/kml-parser"
 import type { VehicleType, MapStyle } from "@/lib/vehicle-icons"
-import { MapPin, Route, Clock } from "lucide-react"
+import type { CameraMode } from "@/lib/camera"
+import { MapPin, Route, Clock, Gauge, Mountain } from "lucide-react"
 
 // Dynamic import for Leaflet to avoid SSR issues
 const LeafletRouteMap = dynamic(
@@ -34,6 +35,7 @@ export default function Home() {
   const [dotColor, setDotColor] = useState("#ffffff")
   const [vehicleType, setVehicleType] = useState<VehicleType>("car")
   const [mapStyle, setMapStyle] = useState<MapStyle>("world")
+  const [cameraMode, setCameraMode] = useState<CameraMode>("cinematic")
   const [isExporting, setIsExporting] = useState(false)
 
   const animationRef = useRef<number | null>(null)
@@ -130,6 +132,14 @@ export default function Home() {
     currentCoordinates.length > 0
       ? calculateTotalDistance(currentCoordinates)
       : 0
+  const elevationStats = useMemo(
+    () => calculateElevationStats(currentCoordinates),
+    [currentCoordinates]
+  )
+  const averageSpeed = useMemo(() => {
+    if (duration <= 0) return 0
+    return totalDistance / (duration / 3600)
+  }, [duration, totalDistance])
 
   return (
     <main className="min-h-screen bg-background">
@@ -209,6 +219,28 @@ export default function Home() {
                     {duration}s animation
                   </span>
                 </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Gauge className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {averageSpeed.toFixed(1)} km/h
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Mountain className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {elevationStats.hasElevation
+                    ? `${Math.round(elevationStats.gain).toLocaleString()} m gain`
+                    : "Elevation N/A"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Mountain className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {elevationStats.hasElevation
+                    ? `${Math.round(elevationStats.max).toLocaleString()} m max`
+                    : "Max elevation N/A"}
+                </span>
+              </div>
               </div>
 
               {/* Route Selector */}
@@ -249,6 +281,7 @@ export default function Home() {
                   dotColor={dotColor}
                   vehicleType={vehicleType}
                   mapStyle={mapStyle}
+                  cameraMode={cameraMode}
                 />
               </div>
 
@@ -299,6 +332,8 @@ export default function Home() {
                   onVehicleTypeChange={setVehicleType}
                   mapStyle={mapStyle}
                   onMapStyleChange={setMapStyle}
+                  cameraMode={cameraMode}
+                  onCameraModeChange={setCameraMode}
                   onExport={handleExport}
                   isExporting={isExporting}
                 />
