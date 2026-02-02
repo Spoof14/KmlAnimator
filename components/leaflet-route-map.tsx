@@ -190,7 +190,7 @@ export function LeafletRouteMap({
     const bounds = L.latLngBounds(latLngs)
     boundsRef.current = bounds
 
-    const padding: [number, number] = [50, 50]
+    const padding = L.point(50, 50)
     const boundsZoom = map.getBoundsZoom(bounds, false, padding)
     const startZoom = clamp(boundsZoom - 1.25, 2, 18)
     const endZoom = Math.max(startZoom + 0.5, clamp(boundsZoom + 2, 3, 19))
