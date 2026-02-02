@@ -10,7 +10,7 @@ import {
   drawMapBackground,
 } from "@/lib/vehicle-icons"
 
-interface RouteMapProps {
+type RouteMapProps = {
   coordinates: Coordinate[]
   progress: number // 0 to 1
   lineColor: string

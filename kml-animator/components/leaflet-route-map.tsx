@@ -6,12 +6,13 @@ import type { VehicleType, MapStyle } from "@/lib/vehicle-icons"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 
-interface LeafletRouteMapProps {
+type LeafletRouteMapProps = {
   coordinates: Coordinate[]
   progress: number
   lineColor: string
   lineWidth: number
   showDot: boolean
+  dotColor: string
   vehicleType: VehicleType
   mapStyle: MapStyle
 }
@@ -41,9 +42,10 @@ const tileProviders: Record<MapStyle, { url: string; attribution: string }> = {
 }
 
 // Vehicle SVG icons - simple dark icons for visibility
-function getVehicleSvg(type: VehicleType, size: number): string {
-  const fill = "%231a1a1a"
-  const stroke = "%231a1a1a"
+function getVehicleSvg(type: VehicleType, color: string, size: number): string {
+  const encodedColor = encodeURIComponent(color)
+  const fill = encodedColor
+  const stroke = encodedColor
   
   switch (type) {
     case "car":

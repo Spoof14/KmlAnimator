@@ -1,6 +1,6 @@
 export type VehicleType = "dot" | "car" | "suv" | "truck" | "plane" | "boat" | "motorcycle" | "bicycle"
 
-export interface VehicleOption {
+export type VehicleOption = {
   id: VehicleType
   name: string
   icon: string // SVG path data
@@ -51,7 +51,7 @@ export const vehicles: VehicleOption[] = [
 
 export type MapStyle = "world" | "world-dark" | "world-outline" | "satellite" | "terrain"
 
-export interface MapStyleOption {
+export type MapStyleOption = {
   id: MapStyle
   name: string
   description: string

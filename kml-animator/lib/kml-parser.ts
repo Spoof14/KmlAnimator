@@ -1,10 +1,10 @@
-export interface Coordinate {
+export type Coordinate = {
   lat: number
   lng: number
   alt?: number
 }
 
-export interface RouteData {
+export type RouteData = {
   name: string
   coordinates: Coordinate[]
 }

@@ -12,7 +12,7 @@ import {
   mapStyles,
 } from "@/lib/vehicle-icons"
 
-interface AnimationControlsProps {
+type AnimationControlsProps = {
   isPlaying: boolean
   onPlayPause: () => void
   onReset: () => void
