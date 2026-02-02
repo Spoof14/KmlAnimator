@@ -39,19 +39,21 @@ export function parseKML(kmlContent: string): RouteData[] {
       const coordText = coordinatesElement.textContent.trim()
       const coordPairs = coordText.split(/\s+/).filter((pair) => pair.length > 0)
 
-      const coordinates: Coordinate[] = coordPairs
-        .map((pair) => {
-          const parts = pair.split(",")
-          if (parts.length >= 2) {
-            return {
-              lng: parseFloat(parts[0]),
-              lat: parseFloat(parts[1]),
-              alt: parts[2] ? parseFloat(parts[2]) : undefined,
-            }
-          }
-          return null
-        })
-        .filter((coord): coord is Coordinate => coord !== null && !isNaN(coord.lat) && !isNaN(coord.lng))
+      const coordinates = coordPairs.reduce<Coordinate[]>((acc, pair) => {
+        const parts = pair.split(",")
+        if (parts.length < 2) return acc
+
+        const lng = parseFloat(parts[0])
+        const lat = parseFloat(parts[1])
+        const alt = parts[2] ? parseFloat(parts[2]) : undefined
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          return acc
+        }
+
+        acc.push({ lng, lat, alt })
+        return acc
+      }, [])
 
       if (coordinates.length > 0) {
         routes.push({ name, coordinates })
