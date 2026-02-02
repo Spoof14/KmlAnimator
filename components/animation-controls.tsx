@@ -11,6 +11,7 @@ import {
   vehicles,
   mapStyles,
 } from "@/lib/vehicle-icons"
+import { type CameraMode, cameraModes } from "@/lib/camera"
 
 type AnimationControlsProps = {
   isPlaying: boolean
@@ -32,6 +33,8 @@ type AnimationControlsProps = {
   onVehicleTypeChange: (value: VehicleType) => void
   mapStyle: MapStyle
   onMapStyleChange: (value: MapStyle) => void
+  cameraMode: CameraMode
+  onCameraModeChange: (value: CameraMode) => void
   onExport: () => void
   isExporting: boolean
 }
@@ -56,6 +59,8 @@ export function AnimationControls({
   onVehicleTypeChange,
   mapStyle,
   onMapStyleChange,
+  cameraMode,
+  onCameraModeChange,
   onExport,
   isExporting,
 }: AnimationControlsProps) {
@@ -115,6 +120,29 @@ export function AnimationControls({
               }`}
             >
               {style.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Camera Settings */}
+      <div className="space-y-4 pt-4 border-t border-border">
+        <h3 className="font-semibold text-foreground">Camera</h3>
+
+        <div className="grid grid-cols-3 gap-2">
+          {cameraModes.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              onClick={() => onCameraModeChange(mode.id)}
+              className={`px-3 py-2 text-sm rounded-md text-left transition-colors ${
+                cameraMode === mode.id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+              title={mode.description}
+            >
+              {mode.name}
             </button>
           ))}
         </div>
@@ -251,7 +279,7 @@ export function AnimationControls({
           {isExporting ? "Recording..." : "Export as Video"}
         </Button>
         <p className="text-xs text-muted-foreground mt-2 text-center">
-          Use screen recording for best results
+          Choose this tab to save a WebM recording
         </p>
       </div>
     </div>

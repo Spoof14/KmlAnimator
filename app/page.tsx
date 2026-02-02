@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { FileUpload } from "@/components/file-upload"
 import { AnimationControls } from "@/components/animation-controls"
 import dynamic from "next/dynamic"
-import { parseKML, calculateTotalDistance } from "@/lib/kml-parser"
+import { parseKML, calculateTotalDistance, calculateElevationStats } from "@/lib/kml-parser"
 import type { Coordinate, RouteData } from "@/lib/kml-parser"
 import type { VehicleType, MapStyle } from "@/lib/vehicle-icons"
-import { MapPin, Route, Clock } from "lucide-react"
+import type { CameraMode } from "@/lib/camera"
+import { MapPin, Route, Clock, Gauge, Mountain } from "lucide-react"
 
 // Dynamic import for Leaflet to avoid SSR issues
 const LeafletRouteMap = dynamic(
@@ -34,11 +35,15 @@ export default function Home() {
   const [dotColor, setDotColor] = useState("#ffffff")
   const [vehicleType, setVehicleType] = useState<VehicleType>("car")
   const [mapStyle, setMapStyle] = useState<MapStyle>("world")
+  const [cameraMode, setCameraMode] = useState<CameraMode>("cinematic")
   const [isExporting, setIsExporting] = useState(false)
 
   const animationRef = useRef<number | null>(null)
   const startTimeRef = useRef<number | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordingStreamRef = useRef<MediaStream | null>(null)
+  const recordingTimeoutRef = useRef<number | null>(null)
 
   const currentCoordinates: Coordinate[] =
     routes.length > 0 ? routes[selectedRoute]?.coordinates || [] : []
@@ -74,62 +79,156 @@ export default function Home() {
     [duration]
   )
 
-  const handlePlayPause = useCallback(() => {
-    if (isPlaying) {
+  const stopAnimation = useCallback(() => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current)
+      animationRef.current = null
+    }
+    setIsPlaying(false)
+    startTimeRef.current = null
+  }, [])
+
+  const startAnimation = useCallback(
+    (startAtProgress: number) => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
       }
-      setIsPlaying(false)
-      startTimeRef.current = null
-    } else {
-      if (progress >= 1) {
-        setProgress(0)
-      }
-      startTimeRef.current = null
-      if (progress > 0 && progress < 1) {
-        startTimeRef.current = performance.now() - progress * duration * 1000
-      }
+      const clamped = Math.min(Math.max(startAtProgress, 0), 1)
+      setProgress(clamped)
       setIsPlaying(true)
+      startTimeRef.current = performance.now() - clamped * duration * 1000
       animationRef.current = requestAnimationFrame(animate)
+    },
+    [animate, duration]
+  )
+
+  const handlePlayPause = useCallback(() => {
+    if (isPlaying) {
+      stopAnimation()
+      return
     }
-  }, [isPlaying, progress, duration, animate])
+
+    const nextProgress = progress >= 1 ? 0 : progress
+    startAnimation(nextProgress)
+  }, [isPlaying, progress, startAnimation, stopAnimation])
 
   const handleReset = useCallback(() => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-    }
+    stopAnimation()
     setProgress(0)
-    setIsPlaying(false)
-    startTimeRef.current = null
-  }, [])
+  }, [stopAnimation])
 
   const handleProgressChange = useCallback((value: number) => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-    }
+    stopAnimation()
     setProgress(value)
-    setIsPlaying(false)
-    startTimeRef.current = null
-  }, [])
+  }, [stopAnimation])
 
   const handleExport = useCallback(async () => {
-    // Note: Leaflet maps don't support canvas capture directly
-    // This would need html2canvas or a different approach
-    alert("Video export coming soon! For now, use screen recording software to capture your animation.")
-  }, [])
+    if (isExporting) return
+    if (!currentCoordinates.length) {
+      alert("Upload a route before exporting a video.")
+      return
+    }
+    if (!navigator.mediaDevices?.getDisplayMedia || typeof MediaRecorder === "undefined") {
+      alert("Screen recording is not supported in this browser.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: 30,
+        },
+        audio: false,
+      })
+
+      const supportedMimeTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ]
+      const mimeType = supportedMimeTypes.find((type) => MediaRecorder.isTypeSupported(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const chunks: Blob[] = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        recordingTimeoutRef.current && clearTimeout(recordingTimeoutRef.current)
+        recordingTimeoutRef.current = null
+
+        stream.getTracks().forEach((track) => track.stop())
+        recordingStreamRef.current = null
+        recorderRef.current = null
+        setIsExporting(false)
+
+        if (!chunks.length) {
+          return
+        }
+
+        const blob = new Blob(chunks, { type: mimeType ?? "video/webm" })
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement("a")
+        anchor.href = url
+        anchor.download = `route-animation-${Date.now()}.webm`
+        anchor.click()
+        URL.revokeObjectURL(url)
+      }
+
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (recorder.state !== "inactive") {
+          recorder.stop()
+        }
+        stopAnimation()
+      })
+
+      recorderRef.current = recorder
+      recordingStreamRef.current = stream
+      setIsExporting(true)
+      recorder.start()
+
+      startAnimation(0)
+
+      recordingTimeoutRef.current = window.setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          recorder.stop()
+        }
+      }, (duration + 0.3) * 1000)
+    } catch (error) {
+      stopAnimation()
+      setIsExporting(false)
+      const err = error as DOMException
+      if (err?.name !== "NotAllowedError") {
+        alert("Recording failed. Please try again and allow screen recording.")
+      }
+    }
+  }, [currentCoordinates.length, duration, isExporting, startAnimation, stopAnimation])
 
   useEffect(() => {
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
+      stopAnimation()
+      if (recordingTimeoutRef.current) {
+        clearTimeout(recordingTimeoutRef.current)
       }
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
     }
-  }, [])
+  }, [stopAnimation])
 
   const totalDistance =
     currentCoordinates.length > 0
       ? calculateTotalDistance(currentCoordinates)
       : 0
+  const elevationStats = useMemo(
+    () => calculateElevationStats(currentCoordinates),
+    [currentCoordinates]
+  )
+  const averageSpeed = useMemo(() => {
+    if (duration <= 0) return 0
+    return totalDistance / (duration / 3600)
+  }, [duration, totalDistance])
 
   return (
     <main className="min-h-screen bg-background">
@@ -209,6 +308,28 @@ export default function Home() {
                     {duration}s animation
                   </span>
                 </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Gauge className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {averageSpeed.toFixed(1)} km/h
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Mountain className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {elevationStats.hasElevation
+                    ? `${Math.round(elevationStats.gain).toLocaleString()} m gain`
+                    : "Elevation N/A"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border">
+                <Mountain className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-foreground font-medium">
+                  {elevationStats.hasElevation
+                    ? `${Math.round(elevationStats.max).toLocaleString()} m max`
+                    : "Max elevation N/A"}
+                </span>
+              </div>
               </div>
 
               {/* Route Selector */}
@@ -249,6 +370,7 @@ export default function Home() {
                   dotColor={dotColor}
                   vehicleType={vehicleType}
                   mapStyle={mapStyle}
+                  cameraMode={cameraMode}
                 />
               </div>
 
@@ -299,6 +421,8 @@ export default function Home() {
                   onVehicleTypeChange={setVehicleType}
                   mapStyle={mapStyle}
                   onMapStyleChange={setMapStyle}
+                  cameraMode={cameraMode}
+                  onCameraModeChange={setCameraMode}
                   onExport={handleExport}
                   isExporting={isExporting}
                 />
